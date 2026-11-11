@@ -9,6 +9,7 @@
 <!-- version 7 adds word list -->
 <!--- version 8 adds undo-redo --->
 <!--- version 9 adds get maximum chain option -->
+<!--- version 10 adds Quag 1/3/2-4 selector; Quag 1 reverses key table insertion (cipher on top, plain below) -->
 <HTML>
 <!-- written by BION -->
 <HEAD>
@@ -208,8 +209,8 @@ function get_fitting_strings(s,len){ // get fitting strings of length len starti
 	// extend from previous fitting strings array if len >1
 	var pos,letter,cell,c,c1;
 	var temp_strings, numb_temp;
-	var i,j,n,str,trie_index;
-	var inv_plain = new Array(); 
+	var i,j,n,str,trie_index,loc;
+	var inv_plain = new Array();
     var row,c2,k,index;
 	
 	pos = parseInt(s); // starting position in cipher
@@ -223,15 +224,30 @@ function get_fitting_strings(s,len){ // get fitting strings of length len starti
             index=0;
             row = code_array[pos].charAt(1);
             c1 = code_array[pos].charAt(0);
-			for (i=0;i<26;i++) { // neither key nor inverse key changed in this loop
-				c = alpha.charAt(i);// is this letter unused in current row?
-                n = inv_plain[symbols.indexOf(c)];
-                c2 = c_symbols.charAt(n)+row;
-                k = quag_key[c2];
-                if ( k != '-' && k != c1) 
-                    continue; // letter already taken
-                fitting_strings[index++]=c;
-            }
+			if (is_quag1()) { // column is fixed by the known ciphertext letter
+				n = inv_plain[c_symbols.indexOf(c1)];
+				c2 = c_symbols.charAt(n)+row;
+				k = quag_key[c2];
+				for (i=0;i<26;i++) {
+					c = alpha.charAt(i);
+					if ( k != '-' && k != c.toUpperCase())
+						continue; // letter already taken
+					if ( row_has_other(c2,c.toUpperCase(),row) )
+						continue; // letter already used by another cipher column in this row
+					fitting_strings[index++]=c;
+				}
+			}
+			else {
+				for (i=0;i<26;i++) { // neither key nor inverse key changed in this loop
+					c = alpha.charAt(i);// is this letter unused in current row?
+	                n = inv_plain[symbols.indexOf(c)];
+	                c2 = c_symbols.charAt(n)+row;
+	                k = quag_key[c2];
+	                if ( k != '-' && k != c1)
+	                    continue; // letter already taken
+	                fitting_strings[index++]=c;
+	            }
+			}
 			numb_fitting_strings = index;
 		}
 		else { //only one letter possible, consistency already checked, any letter can begin a word, so its ok
@@ -253,26 +269,42 @@ function get_fitting_strings(s,len){ // get fitting strings of length len starti
 				c = str.charAt(j);
                 row = code_array[pos+j].charAt(1);
                 c1 = code_array[pos+j].charAt(0);
-                n = inv_plain[symbols.indexOf(c)];
-                c2 = c_symbols.charAt(n)+row;
-				quag_key[c2]=c1;
+                loc = pair_location(inv_plain,c,c1,row);
+				quag_key[loc[0]]=loc[1];
 			}
-            get_inverse_key();            
+            get_inverse_key();
 			cell = code_array[pos+len-1]; // last code symbol
 			letter = inv_key[cell]; // plaintext letter, or '-' if not filled in yet
             row = cell.charAt(1);
             c1 = cell.charAt(0);
 			if ( letter == '-') { // not decoded yet;
-				for (j=0;j<26;j++){
-					if (trie[trie_index][j] != EMPTY) {// this is a possibility, check j for consistency
-                        c = alpha.charAt(j);// is this letter unused in current row?
-                        n = inv_plain[symbols.indexOf(c)];
-                        c2 = c_symbols.charAt(n)+row;
-                        k = quag_key[c2];
-                        if ( k != '-' && k != c1) 
-                            continue; // letter already taken
-						temp_strings[numb_temp++] = str+c;
-                    }
+				if (is_quag1()) { // column is fixed by the known ciphertext letter
+					n = inv_plain[c_symbols.indexOf(c1)];
+					c2 = c_symbols.charAt(n)+row;
+					k = quag_key[c2];
+					for (j=0;j<26;j++){
+						if (trie[trie_index][j] != EMPTY) {
+							c = alpha.charAt(j);
+							if ( k != '-' && k != c.toUpperCase())
+								continue; // letter already taken
+							if ( row_has_other(c2,c.toUpperCase(),row) )
+								continue; // letter already used by another cipher column in this row
+							temp_strings[numb_temp++] = str+c;
+						}
+					}
+				}
+				else {
+					for (j=0;j<26;j++){
+						if (trie[trie_index][j] != EMPTY) {// this is a possibility, check j for consistency
+	                        c = alpha.charAt(j);// is this letter unused in current row?
+	                        n = inv_plain[symbols.indexOf(c)];
+	                        c2 = c_symbols.charAt(n)+row;
+	                        k = quag_key[c2];
+	                        if ( k != '-' && k != c1)
+	                            continue; // letter already taken
+							temp_strings[numb_temp++] = str+c;
+	                    }
+					}
 				}
 			}
 			else { // just one possibility, already consistent
@@ -293,22 +325,21 @@ function get_fitting_strings(s,len){ // get fitting strings of length len starti
 function show_choice(s){
 	var newword,str,pos,insert_pos;
 	var i,j;
-    var row,c,c1,c2,n;
+    var row,c,c1,loc;
 	var inv_plain = [];
-    
+
 	insert_pos = parseInt(s);
-	pos = document.getElementById('wordlist')	
+	pos = document.getElementById('wordlist')
 	newword = pos.options[pos.selectedIndex].text
-    for (i=0;i<26;i++) inv_plain[plain_key[i]]=i; //note: plain_key only changes when you swap columns in the key    
+    for (i=0;i<26;i++) inv_plain[plain_key[i]]=i; //note: plain_key only changes when you swap columns in the key
 	//str = "Choice is "+newword+"  at position "+insert_pos;
 	//alert(str);
     for (j=0;j<newword.length;j++) {
 		c = newword.charAt(j);
         row = code_array[insert_pos+j].charAt(1);
         c1 = code_array[insert_pos+j].charAt(0);
-        n = inv_plain[symbols.indexOf(c)];
-        c2 = c_symbols.charAt(n)+row;
-		quag_key[c2]=c1;
+        loc = pair_location(inv_plain,c,c1,row);
+		quag_key[loc[0]]=loc[1];
 	}
     // check that new word is consistent using double chaining
     if ( !extend()) {
@@ -683,11 +714,8 @@ function extend(){
 		rect_flag = true;
 	else
 		rect_flag = false;
-	if (document.ciphertext.q3.checked)
-		q3_flag = true;
-	else
-		q3_flag = false;
-		
+	q3_flag = (get_quag_type() == "3");
+
 	if (q3_flag) // add fixed row at bottom
 		for (j=0;j<26;j++){
 			quag_key[ c_symbols.charAt(j)+period_row.charAt(period) ] = c_symbols.charAt(plain_key[j]);
@@ -761,15 +789,78 @@ function reset_key() {
 }
 
 function get_inverse_key() {
-	period = parseInt(document.ciphertext.period_entry.value);	
+	period = parseInt(document.ciphertext.period_entry.value);
 	for (i=0;i<period;i++) for (j=0;j<26;j++) {
 		inv_key[ c_symbols.charAt(j)+period_row.charAt(i) ] = '-';
 	}
-	for (i=0;i<period;i++) for (j=0;j<26;j++) {
-		if (quag_key[ c_symbols.charAt(j)+period_row.charAt(i) ]!= '-')
-		  inv_key[quag_key[ c_symbols.charAt(j)+period_row.charAt(i) ]+period_row.charAt(i) ] 
-		  	= symbols.charAt( plain_key[j] );
+	if (is_quag1()) { // top alphabet is ciphertext, key cells hold plaintext letters
+		for (i=0;i<period;i++) for (j=0;j<26;j++) {
+			if (quag_key[ c_symbols.charAt(j)+period_row.charAt(i) ] != '-')
+			  inv_key[ c_symbols.charAt(plain_key[j])+period_row.charAt(i) ]
+			  	= quag_key[ c_symbols.charAt(j)+period_row.charAt(i) ].toLowerCase();
+		}
 	}
+	else {
+		for (i=0;i<period;i++) for (j=0;j<26;j++) {
+			if (quag_key[ c_symbols.charAt(j)+period_row.charAt(i) ]!= '-')
+			  inv_key[quag_key[ c_symbols.charAt(j)+period_row.charAt(i) ]+period_row.charAt(i) ]
+			  	= symbols.charAt( plain_key[j] );
+		}
+	}
+}
+
+// Quag 1/2/3/4 selection
+
+function get_quag_type() { // "1", "3", or "24"
+	return document.ciphertext.quag_type.value;
+}
+
+function is_quag1() {
+	return get_quag_type() == "1";
+}
+
+// locate the key table cell for a (plaintext letter, ciphertext letter) pair at a given row,
+// and the value that belongs in it. Quag 1 keys the table by ciphertext (top alphabet is
+// ciphertext, cells hold plaintext); Quag 2/3/4 key it by plaintext as usual.
+function pair_location(inv_plain,plain_ch,cipher_ch,row) {
+	var n,cell,val;
+
+	if (is_quag1()) {
+		n = inv_plain[ c_symbols.indexOf(cipher_ch) ];
+		val = plain_ch.toUpperCase();
+	}
+	else {
+		n = inv_plain[ symbols.indexOf(plain_ch) ];
+		val = cipher_ch;
+	}
+	cell = c_symbols.charAt(n)+row;
+	return [cell,val];
+}
+
+// top-alphabet letter for column i, and how a key table cell value should be cased for display.
+// In Quag 1 the top alphabet is ciphertext (uppercase) and cells hold plaintext (lowercase);
+// Quag 2/3/4 is the reverse.
+function top_alphabet_letter(i) {
+	return is_quag1() ? c_symbols.charAt(plain_key[i]) : symbols.charAt(plain_key[i]);
+}
+
+function key_cell_display(v) {
+	return is_quag1() ? v.toLowerCase() : v;
+}
+
+// true if some column other than cell already holds val in this row of the key table.
+// In Quag 1, columns are keyed by ciphertext letter, so a repeated plaintext letter in a
+// crib/word does not land on the same column the way it would in Quag 2/3/4, and would
+// otherwise slip past the single-cell check in quag_key[cell].
+function row_has_other(cell,val,row) {
+	var k,c;
+
+	for (k=0;k<26;k++) {
+		c = c_symbols.charAt(k)+row;
+		if (c == cell) continue;
+		if (quag_key[c] == val) return true;
+	}
+	return false;
 }
 
 
@@ -885,7 +976,7 @@ function selectmouse(e)
 	  if ( letter == '?') // query doesn't apply to key table, should click on plaintext for query
 	  	return
 	  s= '<span width="75" height = "75" id ="'+dobj.id+'" class="'+dobj.className+'" style="color:blue">';
-	  s=s+letter+'</span>';
+	  s=s+key_cell_display(letter)+'</span>';
 	  document.getElementById(dobj.id).innerHTML= s;
 	  letter_selected=0;
 	  cell=dobj.className.slice(0,2);
@@ -939,26 +1030,54 @@ function selectmouse(e)
 	  //s = "using letter "+p_letter+" You clicked on pos "+x+" , which is below the codepair\n";
 	  //s = s+code_array[ parseInt(x)];
 	  //document.debug.output_area.value= s; 	
-	  letter_selected=0;	
-	  //remove any previous copy of the cipher letter in this row
-      for (i=0;i<26;i++){
-		  	c = c_symbols.charAt(i)+row;
-		  	if (quag_key[c] == letter){
-			  	s= '<span width="75" height = "75" id ="'+c+'keymatrix" class="'+c+'keyblock" style="color:blue">';
-	  			s=s+'-'+'</span>';
-	  			document.getElementById(c+'keymatrix').innerHTML= s;
-	  			quag_key[c]='-';	
-  	         }
-      }
-	  if ( p_letter != '-') {// find column with this plaintext letter and insert cipher letter there	  
-	  	for (n=0;n<26;n++) 
-	  		if (plain_key[n] == cpos) break;
-		cell = c_symbols.charAt(n)+row;
-	    quag_key[ cell] = letter;
-	    s= '<span width="75" height = "75" id ="'+cell+'keymatrix" class="'+cell+'keyblock" style="color:blue">';
-	    s=s+letter+'</span>';
-	    document.getElementById(cell+'keymatrix').innerHTML= s;      
-      }
+	  letter_selected=0;
+
+	  var inv_plain = [];
+	  for (i=0;i<26;i++) inv_plain[plain_key[i]]=i;
+
+	  if (is_quag1()) { // column is fixed by the known ciphertext letter; cell holds the plaintext letter
+		  n = inv_plain[c_symbols.indexOf(letter)];
+		  cell = c_symbols.charAt(n)+row;
+		  quag_key[cell] = '-'; // clear whatever this ciphertext letter's column held
+		  if ( p_letter != '-') {
+		  	// if this plaintext letter appears in another column of the row, remove it
+		  	for (i=0;i<26;i++){
+			  	c = c_symbols.charAt(i)+row;
+			  	if (c== cell) continue;
+			  	if (quag_key[c] == p_letter){
+				  	s= '<span width="75" height = "75" id ="'+c+'keymatrix" class="'+c+'keyblock" style="color:blue">';
+		  			s=s+'-'+'</span>';
+		  			document.getElementById(c+'keymatrix').innerHTML= s;
+		  			quag_key[c]='-';
+	  			}
+			}
+		    quag_key[cell] = p_letter;
+	      }
+		  s= '<span width="75" height = "75" id ="'+cell+'keymatrix" class="'+cell+'keyblock" style="color:blue">';
+		  s=s+key_cell_display(quag_key[cell])+'</span>';
+		  document.getElementById(cell+'keymatrix').innerHTML= s;
+	  }
+	  else {
+		  //remove any previous copy of the cipher letter in this row
+	      for (i=0;i<26;i++){
+			  	c = c_symbols.charAt(i)+row;
+			  	if (quag_key[c] == letter){
+				  	s= '<span width="75" height = "75" id ="'+c+'keymatrix" class="'+c+'keyblock" style="color:blue">';
+		  			s=s+'-'+'</span>';
+		  			document.getElementById(c+'keymatrix').innerHTML= s;
+		  			quag_key[c]='-';
+	  	         }
+	      }
+		  if ( p_letter != '-') {// find column with this plaintext letter and insert cipher letter there
+		  	for (n=0;n<26;n++)
+		  		if (plain_key[n] == cpos) break;
+			cell = c_symbols.charAt(n)+row;
+		    quag_key[ cell] = letter;
+		    s= '<span width="75" height = "75" id ="'+cell+'keymatrix" class="'+cell+'keyblock" style="color:blue">';
+		    s=s+key_cell_display(letter)+'</span>';
+		    document.getElementById(cell+'keymatrix').innerHTML= s;
+	      }
+	  }
 	  //reset letter block
 	  letterblock_setup();
 	  last_cell=cell;
@@ -1018,8 +1137,8 @@ function keyblock_setup() {
 	for (i=0;i<26;i++) {
 			s = s+'<span width="75" height="75" style="border: 2px solid silver;background: silver;"  >';
 			s=s+'&nbsp<span width="75" height = "75" >';
-			s=s+symbols.charAt( plain_key[i] )+'</span> </span>';
-	}		
+			s=s+top_alphabet_letter(i)+'</span> </span>';
+	}
 	s=s+'<br>';
 	for (i=0;i<period;i++) {
 		cr = period_row.charAt(i);
@@ -1031,12 +1150,12 @@ function keyblock_setup() {
 			c = cc+cr;
 			s = s+'<span width="75" height="75" style="border: 2px solid black;background: white;"  >';
 			s=s+'&nbsp<span width="75" height = "75" id ="'+c+'keymatrix" class="'+c+'keyblock" style="color:blue">';
-			s=s+'-'+'</span> </span>';
+			s=s+key_cell_display('-')+'</span> </span>';
 		}
-		s=s+'&nbsp <br>';	
-	}	
-	s=s+'<br>';	
-	document.getElementById('keyblock').innerHTML=s;	
+		s=s+'&nbsp <br>';
+	}
+	s=s+'<br>';
+	document.getElementById('keyblock').innerHTML=s;
 
 }
 
@@ -1050,8 +1169,8 @@ function restore_keyblock(flag) { // if flag ==1 include green selection boxes
 	for (i=0;i<26;i++) {
 			s = s+'<span width="75" height="75" style="border: 2px solid silver;background: silver;"  >';
 			s=s+'&nbsp<span width="75" height = "75" >';
-			s=s+symbols.charAt( plain_key[i] )+'</span> </span>';
-	}		
+			s=s+top_alphabet_letter(i)+'</span> </span>';
+	}
 	s=s+'<br>';
 	for (i=0;i<period;i++) {
 		cr = period_row.charAt(i);
@@ -1062,7 +1181,7 @@ function restore_keyblock(flag) { // if flag ==1 include green selection boxes
 			cc=c_symbols.charAt(j);
 			c = cc+cr;
 			v = quag_key[c];
-			c2 = v+cr;	
+			c2 = v+cr;
 			if (freq[ c2 ]>=4)
 				co = 'white';
 			else if (freq[ c2 ]==3)
@@ -1073,10 +1192,10 @@ function restore_keyblock(flag) { // if flag ==1 include green selection boxes
 				co = 'orange';
 			else
 				co = 'silver'
-			
+
 			s = s+'<span width="75" height="75" style="border: 2px solid black;background:'+co+';"  >';
 			s=s+'&nbsp<span width="75" height = "75" id ="'+c+'keymatrix" class="'+c+'keyblock" style="color:blue">';
-			s=s+v+'</span> </span>';
+			s=s+key_cell_display(v)+'</span> </span>';
 		}
 		s=s+'&nbsp <br>';	
 	}	
@@ -1168,9 +1287,9 @@ function redo() {
 }	
 
 function ck_crib_pos() {
-	var c,pr,k,r,c1,c2,i,n;
+	var c,pr,k,r,c1,c2,i,n,val,loc;
 	var inv_plain = new Array();
-	
+
 	//also set up quag_key and keyblock
 	//for speed, check consistency first
 	for (i=0;i<26;i++) inv_plain[plain_key[i]]=i;
@@ -1183,37 +1302,39 @@ function ck_crib_pos() {
 		if ( k != '-' && k != c) {
 			/* for speed,only reset at end, if not found!
 			reset_key();
-			keyblock_setup();	
+			keyblock_setup();
 			*/
 			return(0);
 		}
 		inv_key[code_array[crib_pos+i]]=c;
 		r = code_array[crib_pos+i].charAt(1);
 		c1 = code_array[crib_pos+i].charAt(0);
-		//c2 = c.toUpperCase() + r;
-		n = inv_plain[symbols.indexOf(c)];
-		c2 = c_symbols.charAt(n)+r;
+		loc = pair_location(inv_plain,c,c1,r);
+		c2 = loc[0]; val = loc[1];
 		k = quag_key[c2];
-		if ( k != '-' && k != c1) {
+		if ( k != '-' && k != val) {
 			return(0);
-		}		
-		quag_key[c2] = c1;
+		}
+		if ( is_quag1() && row_has_other(c2,val,r) ) { // val already used by another cipher column in this row
+			return(0);
+		}
+		quag_key[c2] = val;
 	}
 	//it's consistent, update keyblock and screen
 	keyblock_setup();
 	for (i=0;i<cribtext.length;i++) {
 		c = cribtext.charAt(i);
-		c = c.toUpperCase();
 		pr =code_array[crib_pos+i];
 		c1 = pr.charAt(0);
 		r = pr.charAt(1);
-		pr = c+r;
-        s= '<span width="75" height = "75" id ="'+pr+'keymatrix" class="'+pr+'keyblock" style="color:blue">';
-	    s=s+c1+'</span>';
-	    document.getElementById(pr+'keymatrix').innerHTML= s;
+		loc = pair_location(inv_plain,c,c1,r);
+		c2 = loc[0]; val = loc[1];
+        s= '<span width="75" height = "75" id ="'+c2+'keymatrix" class="'+c2+'keyblock" style="color:blue">';
+	    s=s+key_cell_display(val)+'</span>';
+	    document.getElementById(c2+'keymatrix').innerHTML= s;
 	}
 	return(1); //OK at crib_pos!
-}	
+}
 
 
 function drag_right() {
@@ -1551,11 +1672,11 @@ function save_to_disk(){
 	} 
 	else {
 		try {
-			localStorage.setItem("quagmire.cipher", data); //saves to the database, “key”, “value”
+			localStorage.setItem("quagmire.cipher", data); //saves to the database, ï¿½keyï¿½, ï¿½valueï¿½
 			localStorage.setItem("quagmire.period", period);
 		} catch (e) {
 			if (e == QUOTA_EXCEEDED_ERR) {
-			alert('Quota exceeded!'); //data wasn’t successfully saved due to quota exceed so throw an error
+			alert('Quota exceeded!'); //data wasnï¿½t successfully saved due to quota exceed so throw an error
 			}
 		}
 	}
@@ -1659,13 +1780,14 @@ function do_max_chain(){
     
     
 	// get inverse code key, don't  use regular inverse key in case columns were swapped
-	period = parseInt(document.ciphertext.period_entry.value);	
+	period = parseInt(document.ciphertext.period_entry.value);
+	q3_flag = (get_quag_type() == "3");
 	for (i=0;i<period;i++) for (j=0;j<26;j++) {
 		inv_code_key[ c_symbols.charAt(j)+period_row.charAt(i) ] = '-';
 	}
 	for (i=0;i<period;i++) for (j=0;j<26;j++) {
 		if (quag_key[ c_symbols.charAt(j)+period_row.charAt(i) ]!= '-')
-		  inv_code_key[quag_key[ c_symbols.charAt(j)+period_row.charAt(i) ]+period_row.charAt(i) ] 
+		  inv_code_key[quag_key[ c_symbols.charAt(j)+period_row.charAt(i) ]+period_row.charAt(i) ]
 		  	= symbols.charAt( j );
 	}
 	if (q3_flag) // add fixed row at bottom
@@ -1808,7 +1930,10 @@ Ciphertext: (Type or paste cipher into this box, then enter the period and press
 <INPUT onclick=do_extend(); type=button value="extend" >
 <input type="checkbox" checked name="chain" > Double chain
 <input type="checkbox" name="rect_fill" > Rectangle fill
-<input type="checkbox" name="q3" > Quag 3
+&nbsp;&nbsp;&nbsp;
+<input type="radio" name="quag_type" value="1" checked> Quag 1
+<input type="radio" name="quag_type" value="3" > Quag 3
+<input type="radio" name="quag_type" value="24" > Quag 2/4
 &nbsp;&nbsp;&nbsp;
 <input onclick="do_max_chain()" type=button value="Max chain" >
 
